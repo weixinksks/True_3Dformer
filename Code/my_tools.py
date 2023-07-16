@@ -53,7 +53,7 @@ class make_embedding(nn.Module):
         """
         :param cube_dim: The number of grids in one patch cube
         :param d_size: the embedding length
-        :param emb_spatial_size:The number of patches decomposed in a field, S
+        :query, key, value: size (batch, S, T, d_size)
         :param max_len: look back or prediction length, T
         """
         super().__init__()
@@ -65,8 +65,12 @@ class make_embedding(nn.Module):
         pe[:, 1::2] = torch.cos(temp_position * div_term)
         self.pe_time = pe[None, None].to(device)
         # 2. spatial embedding
+        # 生成固定的位置标识
         self.spatial_pos = torch.arange(emb_spatial_size)[None, :, None].to(device)
+        # 定义一个可以学习的参数矩阵，当模型输入一个空间位置标识符时，nn.Embedding 会查找并返回对应的空间特征向量。
+        # 这个特征向量可以被视为该空间位置的表示，其中包含了与该位置相关的特征信息
         self.emb_space = nn.Embedding(emb_spatial_size, d_size)
+        
         self.linear = nn.Linear(cube_dim, d_size)
         self.norm = nn.LayerNorm(d_size)
 
@@ -109,7 +113,7 @@ def fold_func(tensor, output_size, kernel_size):
 def clone_layer(layer_in, N):
     return nn.ModuleList([copy.deepcopy(layer_in) for _ in range(N)])
 
-
+# 进行层级连接的作用
 class layerConnect(nn.Module):
     def __init__(self, size, dropout):
         super().__init__()
@@ -150,9 +154,11 @@ class make_attention(nn.Module):
         assert d_size % nheads == 0
         self.d_k = d_size // nheads
         self.nheads = nheads
+        # 设置多少层的模型
         self.linears = nn.ModuleList([nn.Linear(d_size, d_size) for _ in range(4)])
         self.dropout = nn.Dropout(p=dropout)
         self.attention_module = attention_module
+        
 
     def forward(self, query, key, value, mask=None):
         """
@@ -165,12 +171,14 @@ class make_attention(nn.Module):
         nbatches = query.size(0)
         nspace = query.size(1)
         ntime = query.size(2)
+        # 通过这个方法来获得得到相关的Q，K，V
         query, key, value = [
             l(x)
             .view(x.size(0), x.size(1), x.size(2), self.nheads, self.d_k)
             .permute(0, 3, 1, 2, 4)
             for l, x in zip(self.linears, (query, key, value))
         ]
+        # 设置相关的注意力
         x = self.attention_module(query, key, value, mask=mask, dropout=self.dropout)
         x = (
             x.permute(0, 2, 3, 1, 4)
@@ -184,7 +192,11 @@ class miniEncoder(nn.Module):
     def __init__(self, d_size, nheads, dim_feedforward, dropout):
         super().__init__()
         self.sublayer = clone_layer(layerConnect(size=d_size, dropout=dropout), 2)
+
+
+        # 制作时间注意力机制
         self.time_attn = make_attention(d_size, nheads, T_attention, dropout)
+        # 制作空间注意力机制
         self.space_attn = make_attention(d_size, nheads, S_attention, dropout)
 
         self.FC = nn.Sequential(
@@ -192,7 +204,7 @@ class miniEncoder(nn.Module):
             nn.ReLU(),
             nn.Linear(dim_feedforward, d_size),
         )
-
+    # 进行时空注意力机制融合
     def TS_attn(self, query, key, value, mask):
         """
         Returns:

@@ -4,7 +4,13 @@ import torch
 from torch.utils.data import DataLoader
 import numpy as np
 import os
-from LoadData import make_TFdataset
+# from LoadData import make_TFdataset
+from SST import make_TFdataset
+
+
+import xarray as xr
+import netCDF4 as nc
+
 
 
 def file_name(file_dir):
@@ -218,7 +224,10 @@ class TFtrainer:
 
 
 if __name__ == "__main__":
-    adr_TF = "./data/SODA_ORAS_group_temp_tauxy_before1979_kb.nc"
+
+
+    adr_TF = 'D:\AIProject\Code_of_3D-Geoformer\err_train_all.nc'
+
     print("\nloading TF_data...")
     dataTF = make_TFdataset(
         address=adr_TF,

@@ -3,20 +3,32 @@ import numpy as np
 from copy import deepcopy
 import matplotlib as mpl
 import matplotlib.pylab as plt
+import matplotlib.colors as mcolors
 from matplotlib.ticker import MultipleLocator
 import os
 from sklearn.metrics import mean_squared_error
 from sklearn.metrics import mean_absolute_error
 from my_tools import cal_ninoskill2, runmean
 from func_for_prediction import func_pre
+import torch
+import pandas as pd
 
-mpl.use("Agg")
+import xarray as xr
+
+import matplotlib.pyplot as plt
+import matplotlib.colors as colors
+import SST
+
+mpl.use("TKAgg")
 plt.rc("font", family="Arial")
 mpl.rc("image", cmap="RdYlBu_r")
 plt.rcParams["xtick.direction"] = "in"
 plt.rcParams["ytick.direction"] = "in"
 
 
+
+
+# 使用以下的代码来获取训练得到的模型
 def file_name(file_dir):
     L = []
     for root, dirs, files in os.walk(file_dir):
@@ -26,129 +38,178 @@ def file_name(file_dir):
     return L
 
 
+
+
 # --------------------------------------------------------
-files = file_name("./model")
-file_num = len(files)
+# 定义一些全局变量，模型的路径，需要去更改模型。
+files = ("D:/AIProject/Code_of_3D-Geoformer/Data/tmp_module/Geoformer.pkl")
+print(files)
+# file_num = len(files)
+# print(file_num)
+
+# 设置输出数据的长度
 lead_max = mypara.output_length
-adr_datain = (
-    "./data/GODAS_group_up150_temp_tauxy_8021_kb.nc"
+
+
+
+# 需要重新进行预测结果的可视化，包括时间纬度和空间纬度上的可视化，
+# 需要在时间纬度上进行可视化制作，即在单点数据上或者是在场数据上,利用时间纬度进行可视化，
+# 需要在空间纬度上进行可视化制作，即需要对于数据在空间维度上进行可视化，
+
+
+
+
+# 首先第一步定义相关的路径，将测试数据输入到模型当中。
+adr_data  = ("E:/SST_DATA/pacific/")
+
+
+
+# 是否可以在func_pre中直接返回关于太平洋模式预报数据的经纬度信息和掩码信息
+adr_data_err = "E:/SST_DATA/pacific/err/20190101/sst.000.nc"
+
+file_object_xr = xr.open_dataset(adr_data_err)
+
+print(file_object_xr)
+
+# # 需要获取相关的数据，从而得到对应的经纬度信息和掩码信息
+GLOBAL_LAT = file_object_xr.variables['lat'].values
+GLOBAL_LON = file_object_xr.variables['lon'].values
+mask_ocean_data = file_object_xr["sst"][0,:].isnull().values
+
+
+
+
+
+# 测试文件进行更改，使得数据符合测试功能所定义的数据类型
+
+(cut_var_pred, cut_var_true)= func_pre(
+    mypara=mypara,
+    adr_model=files,
+    adr_data=adr_data
 )
-adr_oridata = "./data/GODAS_up150m_temp_nino_tauxy_kb.nc"
-# ---------------------------------------------------------
-for i_file in files[: file_num + 1]:
-    fig1 = plt.figure(figsize=(5, 2.5), dpi=300)
-    ax1 = fig1.add_subplot(1, 2, 1)
-    ax2 = fig1.add_subplot(1, 2, 2)
-    (cut_var_pred, cut_var_true, cut_nino_pred, cut_nino_true,) = func_pre(
-        mypara=mypara,
-        adr_model=i_file,
-        adr_datain=adr_datain,
-        adr_oridata=adr_oridata,
-        needtauxy=mypara.needtauxy,
-    )
-    # -----------
-    cut_nino_true_jx = deepcopy(cut_nino_true[(24 - lead_max + 1) :])
-    cut_nino_pred_jx = deepcopy(cut_nino_pred[:, (24 - lead_max + 1) :])
-    assert np.mod(cut_nino_true_jx.shape[0], 12) == 0
-    corr = np.zeros([lead_max])
-    mse = np.zeros([lead_max])
-    mae = np.zeros([lead_max])
-    bb = runmean(cut_nino_true_jx, 3)
-    for l in range(lead_max):
-        aa = runmean(cut_nino_pred_jx[l], 3)
-        corr[l] = np.corrcoef(aa, bb)[0, 1]
-        mse[l] = mean_squared_error(aa, bb)
-        mae[l] = mean_absolute_error(aa, bb)
-    del aa, bb
-    # -------------figure---------------
-    ax1.plot(corr, color="C0", linestyle="-", linewidth=1, label="Corr")
-    ax1.plot(mse ** 0.5, color="C2", linestyle="-", linewidth=1, label="RMSE")
-    ax1.plot(mae, color="C3", linestyle="-", linewidth=1, label="MAE")
-    ax1.plot(np.ones(lead_max) * 0.5, color="k", linestyle="--", linewidth=1)
-    ax1.set_xlim(0, lead_max - 1)
-    ax1.set_xticks(np.array([1, 5, 10, 15, 20]) - 1)
-    ax1.xaxis.set_minor_locator(MultipleLocator(1))
-    ax1.set_xticklabels(np.array([1, 5, 10, 15, 20]), fontsize=9)
-    ax1.set_xlabel("Prediction lead (months)", fontsize=9)
 
-    ax1.set_ylim(0, 1)
-    ax1.set_yticks(np.arange(0, 1.01, 0.1))
-    ax1.set_yticklabels(np.around(np.arange(0, 1.01, 0.1), 1), fontsize=9)
-    ax1.grid(linestyle=":")
-    # ---------skill contourf
-    # 1983.1~2021.12
-    long_eval_yr = 2021 - 1983 + 1
-    cut_nino_true_jx = runmean(cut_nino_true_jx, 3)
-    for l in range(lead_max):
-        cut_nino_pred_jx[l] = runmean(cut_nino_pred_jx[l], 3)  # [lead_max,len]
-    pre_nino_tg = np.zeros([long_eval_yr, 12, lead_max])
-    for l in range(lead_max):
-        for i in range(long_eval_yr):
-            pre_nino_tg[i, :, l] = cut_nino_pred_jx[l, 12 * i : 12 * (i + 1)]
-    real_nino = np.zeros([long_eval_yr, 12])
-    for i in range(long_eval_yr):
-        real_nino[i, :] = cut_nino_true_jx[12 * i : 12 * (i + 1)]
-    tem1 = deepcopy(pre_nino_tg)
-    pre_nino_st = np.zeros(pre_nino_tg.shape)
-    for y in range(long_eval_yr):
-        for t in range(12):
-            terget = t + 1
-            for l in range(lead_max):
-                lead = l + 1
-                start_mon = terget - lead
-                if -12 < start_mon <= 0:
-                    start_mon += 12
-                elif start_mon <= -12:
-                    start_mon += 24
-                pre_nino_st[y, start_mon - 1, l] = tem1[y, t, l]
-    del y, t, l, start_mon, terget, lead, tem1
-    tem1 = deepcopy(pre_nino_st)
-    tem2 = deepcopy(real_nino)
-    nino_skill = cal_ninoskill2(tem1, tem2)
-    # ---------------figure
-    ax2.contourf(
-        nino_skill, levels=np.arange(0, 1.01, 0.1), extend="both", cmap="RdBu_r"
-    )
-    ct1 = ax2.contour(nino_skill, [0.5, 0.6, 0.7, 0.8, 0.9], colors="k", linewidths=1)
-    ax2.clabel(
-        ct1,
-        fontsize=8,
-        colors="k",
-        fmt="%.1f",
-    )
-    ax2.set_xlim(0, lead_max - 1)
-    ax2.set_xticks(np.array([1, 5, 10, 15, 20]) - 1)
-    ax2.xaxis.set_minor_locator(MultipleLocator(1))
-    ax2.set_xticklabels(np.array([1, 5, 10, 15, 20]), fontsize=9)
-    ax2.set_xlabel("Prediction lead (months)", fontsize=9)
-    ax2.set_yticks(np.arange(0, 12, 1))
-    y_ticklabel = [
-        "Jan",
-        "Feb",
-        "Mar",
-        "Apr",
-        "May",
-        "Jun",
-        "Jul",
-        "Aug",
-        "Sep",
-        "Oct",
-        "Nov",
-        "Dec",
-    ]
-    ax2.set_yticklabels(y_ticklabel, fontsize=9)
-    ax2.set_ylabel("Month", fontsize=9)
-    del tem1, tem2
-    legend = ax1.legend(
-        loc="lower left",
-        ncol=3,
-        fontsize=5,
-    )
+print(cut_var_pred)
+print(cut_var_true)
+# 打印处理的数据形状是[10,25,1,660,780]
+print(cut_var_pred.shape)
+print(cut_var_pred.shape[0]) # 这里输出的时相关预测数据，[ngroup,input_length,time,lat,lon]
 
-    _ = ax1.text(x=0.02, y=1.02, s="(a)", fontsize=9)
-    _ = ax2.text(x=0.02, y=11.24, s="(b)", fontsize=9)
 
-    plt.tight_layout()
-    plt.savefig("./model/test_skill.png")
-    # plt.show()
-    print("*************" * 8)
+
+
+
+
+for i in range(lead_max):
+
+    # 首先计算预测图像的一个平均绝对误差
+
+    y_pred = cut_var_pred[0,i,0,:,:]
+    # y_true = cut_var_true[0,i,0,:,:]
+    err_abs = abs(y_pred)
+    mae = np.nanmean(err_abs)
+    print('pre_Mae:', mae)
+
+
+    # 之后计算真实值的平均绝对误差
+    # y_pred = cut_var_pred[0,i,0,:,:]
+    y_true = cut_var_true[0,i,0,:,:]
+    err_abs = abs(y_true)
+    mae = np.nanmean(err_abs)
+    print('true_Mae:', mae)
+
+
+    # 需要循环计算相关的预测指标，即平均绝对误差
+    y_pred = cut_var_pred[0,i,0,:,:]
+    y_true = cut_var_true[0,i,0,:,:]
+    err_abs = abs(y_pred-y_true)
+    mae = np.nanmean(err_abs)
+    print('err_Mae:', mae)
+
+    # 这里计算RMSE损失（均方根误差）
+    # 采用torch本身封装好的损失函数接口进行计算
+    y_pred = torch.tensor(cut_var_pred[0,i,0,:,:])
+    y_true = torch.tensor(cut_var_true[0,i,0,:,:])
+    criterion = torch.nn.MSELoss()
+    mse_loss = criterion(y_pred, y_true)
+    rmse_loss = torch.sqrt(mse_loss)
+    print('RMSE_Loss:', rmse_loss.item())
+
+
+    # 进行图像绘制
+    vmin = -3.0
+    vmax = 3.0
+    interval = 0.5
+
+    # 创建自定义的colorbar
+    colortable_name = "my_colortable"   #定义颜色表名称
+    cmap_data = np.loadtxt('D:/AIProject/Code_of_3D-Geoformer/Drawing/hotcolr_19lev.rgb') / 255.0
+    cmap = colors.ListedColormap(cmap_data,colortable_name)
+
+    # 构造两个子图，一个显示预测图像，一个显示真实图像
+    fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+
+
+
+
+
+
+    # 全部数据，包括陆地和海洋数据
+    pre_data =cut_var_pred[0,i,0,:,:] 
+    true_data =cut_var_true[0,i,0,:,:]
+    # data =file_object_xr["sst"][0,:,:]
+    # data =cut_var_pred[0,i,0,:,:]-cut_var_true[0,i,0,:,:]
+    # # 需要利用掩码信息将陆地信息和海洋信息提取出来
+    land_data = np.ma.masked_array(pre_data, ~mask_ocean_data)
+    
+    axes[0].imshow(np.flipud(land_data), cmap='gray', vmin=vmin, vmax=vmax, alpha=0.5)
+
+    # 绘制数据图像，并选择自定义的colorbar
+    ocean_data = np.ma.masked_array(pre_data, mask_ocean_data)
+    im1 = axes[0].imshow(np.flipud(ocean_data), cmap=cmap, vmin=vmin, vmax=vmax) 
+
+    # # 需要利用掩码信息将陆地信息和海洋信息提取出来
+    land_data = np.ma.masked_array(true_data, ~mask_ocean_data)
+    
+    axes[1].imshow(np.flipud(land_data), cmap='gray', vmin=vmin, vmax=vmax, alpha=0.5)
+
+    # 绘制数据图像，并选择自定义的colorbar
+    ocean_data = np.ma.masked_array(true_data, mask_ocean_data)
+    im2 = axes[1].imshow(np.flipud(ocean_data), cmap=cmap, vmin=vmin, vmax=vmax) 
+
+
+
+    # 设置刻度位置
+
+    lon_ticks = np.arange(file_object_xr['lon'][0], file_object_xr['lon'][-1]+1, 5)
+    lat_ticks = np.arange(file_object_xr['lat'][0], file_object_xr['lat'][-1]+1, 5)
+
+    axes[0].set_xticks(np.linspace(0, pre_data.shape[1], len(lon_ticks)), lon_ticks)
+    axes[0].set_yticks(np.linspace(0, pre_data.shape[0], len(lat_ticks)), np.flipud(lat_ticks))
+
+    axes[1].set_xticks(np.linspace(0, pre_data.shape[1], len(lon_ticks)), lon_ticks)
+    axes[1].set_yticks(np.linspace(0, pre_data.shape[0], len(lat_ticks)), np.flipud(lat_ticks))
+
+
+    # 设置X轴和Y轴刻度标签
+    x_tick_labels = ['98°E', '105°E','110°E', '115°E', '120°E', '125°E','130°E','135°E','140°E','145°E', '150°E', '155°E', '160°E','165°E','170°E','175°E']
+    y_tick_labels = ['48°N','40°N','35°N', '30°N', '25°N', '20°N','15°N','10°N','5°N','0°N','-5°N','-10°N','-15°N','-20°N']
+
+    axes[0].set_xticklabels(x_tick_labels,fontsize = 12,rotation = 45)
+    axes[0].set_yticklabels(y_tick_labels)
+
+    axes[1].set_xticklabels(x_tick_labels,fontsize = 12,rotation = 45)
+    axes[1].set_yticklabels(y_tick_labels)
+
+
+    # # 显示颜色条
+    fig.colorbar(im1,ax=axes[0], ticks=np.arange(vmin, vmax + interval, interval))
+    fig.colorbar(im2,ax=axes[1], ticks=np.arange(vmin, vmax + interval, interval))
+    # # 在图形上方添加共享的x轴标签
+    fig.text(0.5, 0.05, 'Lon', ha='center')
+    
+    # 在图形左侧添加共享的y轴标签
+    fig.text(0.02, 0.5, 'Lat', va='center', rotation='vertical')
+
+    # 显示图形
+    plt.show()
+print("*************" * 8)

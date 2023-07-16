@@ -134,6 +134,7 @@ class make_dataset2(IterableDataset):
     """
     online reading dataset
     """
+    # 初始化读入nc文件的数据
     def __init__(self, mypara):
         self.mypara = mypara
         data_in = xr.open_dataset(mypara.adr_pretr)
@@ -146,6 +147,7 @@ class make_dataset2(IterableDataset):
         self.input_length = mypara.input_length
         self.output_length = mypara.output_length
         self.all_group = mypara.all_group
+        # 获取nc文件中的海温场数据
         temp = data_in["temperatureNor"][
             :,
             :,
@@ -153,8 +155,11 @@ class make_dataset2(IterableDataset):
             mypara.lat_range[0] : mypara.lat_range[1],
             mypara.lon_range[0] : mypara.lon_range[1],
         ].values
+        # 将temp中的所有NaN值替换为0。
         temp = np.nan_to_num(temp)
+        # 将temp中的所有大于999的数据值替换为0,本质上是对于数据过滤
         temp[abs(temp) > 999] = 0
+        # 判断是否需要考虑风应力因素,其中taux表示为经向风应力,tauy表示为纬向风应力
         if mypara.needtauxy:
             print("loading tauxy...")
             taux = data_in["tauxNor"][
@@ -173,11 +178,13 @@ class make_dataset2(IterableDataset):
             ].values
             tauy = np.nan_to_num(tauy)
             tauy[abs(tauy) > 999] = 0
+            # 将taux,tauy,tmp数据进行拼接,沿着第三个维度进行拼接
             self.field_data = np.concatenate(
                 (taux[:, :, None], tauy[:, :, None], temp), axis=2
             )
             del temp, taux, tauy
         else:
+            # 并未考虑风应力因素的影响,单纯只考虑海温场的数据
             self.field_data = temp
             del temp
 
@@ -187,7 +194,9 @@ class make_dataset2(IterableDataset):
         for i in range(self.all_group):
             rd_m = random.randint(0, self.field_data.shape[0] - 1)
             rd = random.randint(st_min, ed_max - 1)
+            # 制作输入历史数据,不存在nino3.4数据
             dataX = self.field_data[rd_m, rd - self.input_length + 1 : rd + 1]
+            # 制作输出预测数据,同样是范围数据,不存在nino3.4数据
             dataY = self.field_data[rd_m, rd + 1 : rd + self.output_length + 1]
             yield dataX, dataY
 
@@ -197,7 +206,7 @@ class make_dataset2(IterableDataset):
                 self.lon[self.lon_range[0]],
                 self.lon[self.lon_range[1] - 1],
             ),
-            "lat: {}S to {}N".format(
+            "lat: {}N to {}N".format(
                 self.lat[self.lat_range[0]],
                 self.lat[self.lat_range[1] - 1],
             ),
@@ -217,7 +226,7 @@ class make_testdataset(Dataset):
         self.lev_range = mypara.lev_range
         self.lon_range = mypara.lon_range
         self.lat_range = mypara.lat_range
-
+        # 读入历史输入数据，海洋温度异常场数据
         temp_in = data_in["temperatureNor_in"][
             :,
             :,
@@ -254,6 +263,7 @@ class make_testdataset(Dataset):
             field_data_in = temp_in
             del temp_in
         # ====================out
+        # 读取未来预测数据，海洋温度异常场数据
         temp_out = data_in["temperatureNor_out"][
             :,
             :,
@@ -298,8 +308,11 @@ class make_testdataset(Dataset):
 
     def deal_testdata(self, field_data_in, field_data_out, ngroup):
         print("Random sampling...")
+        # 历史时间长度，lb = 12
         lb = field_data_in.shape[1]
+        # 输出预测时间长度，output_length = 20
         output_length = field_data_out.shape[1]
+        # 初始化一个多维数组，形状为数组group数，lb历史时间长度，以及其他的形状长度
         out_field_x = np.zeros(
             [
                 ngroup,
@@ -309,6 +322,7 @@ class make_testdataset(Dataset):
                 field_data_in.shape[4],
             ]
         )
+        # 同理这也是多维数组，输出的多维数组数据的形状
         out_field_y = np.zeros(
             [
                 ngroup,
@@ -318,6 +332,8 @@ class make_testdataset(Dataset):
                 field_data_out.shape[4],
             ]
         )
+
+        # 以下代码是建立起输入历史数据（12时间长度），和输出预测数据（20时间长度）
         iii = 0
         for j in range(ngroup):
             rd = random.randint(0, field_data_in.shape[0] - 1)
@@ -363,6 +379,7 @@ class make_TFdataset(Dataset):
         ngroup=None,
     ):
         self.mypara = mypara
+        print(address)
         data_in = xr.open_dataset(address)
         self.lev = data_in["lev"].values
         self.lat = data_in["lat"].values
